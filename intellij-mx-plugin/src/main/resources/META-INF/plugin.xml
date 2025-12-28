@@ -1,0 +1,86 @@
+<idea-plugin>
+    <id>com.oracle.graalvm.mx</id>
+    <name>MX Build Tool</name>
+    <vendor email="graal-dev@openjdk.org" url="https://github.com/graalvm/mx">Oracle</vendor>
+
+    <description><![CDATA[
+    IntelliJ IDEA integration for the MX build tool used by GraalVM and related projects.
+
+    Features:
+    <ul>
+      <li>Automatic detection and import of MX projects</li>
+      <li>Build integration with mx build commands</li>
+      <li>Test runner for mx unittest</li>
+      <li>Debug support for MX projects</li>
+      <li>Project structure synchronization from suite.py</li>
+    </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    <depends>com.intellij.modules.lang</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Project detection -->
+        <directoryProjectGenerator implementation="com.oracle.graalvm.mx.project.MxProjectGenerator"/>
+
+        <!-- Project type -->
+        <moduleType id="MX_MODULE" implementationClass="com.oracle.graalvm.mx.project.MxModuleType"/>
+
+        <!-- File type for suite.py -->
+        <fileType name="MX Suite"
+                  implementationClass="com.oracle.graalvm.mx.lang.MxSuiteFileType"
+                  fieldName="INSTANCE"
+                  language="Python"
+                  extensions=""/>
+
+        <!-- Project structure -->
+        <projectStructureDetector implementation="com.oracle.graalvm.mx.project.MxProjectStructureDetector"/>
+
+        <!-- Build system -->
+        <buildProcess.parametersProvider implementation="com.oracle.graalvm.mx.build.MxBuildParametersProvider"/>
+        <externalSystemManager implementation="com.oracle.graalvm.mx.external.MxExternalSystemManager"/>
+
+        <!-- Run configurations -->
+        <configurationType implementation="com.oracle.graalvm.mx.run.MxBuildConfigurationType"/>
+        <configurationType implementation="com.oracle.graalvm.mx.run.MxTestConfigurationType"/>
+        <programRunner implementation="com.oracle.graalvm.mx.run.MxDebugRunner"/>
+
+        <!-- Toolwindow -->
+        <toolWindow id="MX" secondary="true" icon="AllIcons.Toolwindows.ToolWindowBuild"
+                    anchor="right"
+                    factoryClass="com.oracle.graalvm.mx.toolwindow.MxToolWindowFactory"/>
+
+        <!-- Settings -->
+        <projectConfigurable groupId="build.tools"
+                           displayName="MX"
+                           id="reference.settingsdialog.project.mx"
+                           instance="com.oracle.graalvm.mx.settings.MxProjectConfigurable"/>
+
+        <!-- Actions -->
+        <actionGroup id="MxToolsMenu" text="MX" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="MxBuild" class="com.oracle.graalvm.mx.actions.MxBuildAction"
+                    text="Build Project" description="Build the MX project"/>
+            <action id="MxClean" class="com.oracle.graalvm.mx.actions.MxCleanAction"
+                    text="Clean Project" description="Clean the MX project"/>
+            <action id="MxTest" class="com.oracle.graalvm.mx.actions.MxTestAction"
+                    text="Run Tests" description="Run MX unit tests"/>
+            <separator/>
+            <action id="MxSync" class="com.oracle.graalvm.mx.actions.MxSyncAction"
+                    text="Sync Project Structure" description="Synchronize project structure from suite.py"/>
+        </actionGroup>
+    </extensions>
+
+    <actions>
+        <!-- Build toolbar actions -->
+        <action id="Mx.BuildFile" class="com.oracle.graalvm.mx.actions.BuildFileAction">
+            <add-to-group group-id="BuildMenu" anchor="first"/>
+        </action>
+    </actions>
+
+    <projectListeners>
+        <listener class="com.oracle.graalvm.mx.project.MxProjectListener"
+                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
+    </projectListeners>
+</idea-plugin>
