@@ -6,11 +6,14 @@ import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.process.OSProcessHandler;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
+import com.intellij.execution.testframework.sm.SMTestRunnerConnectionUtil;
+import com.intellij.execution.ui.ConsoleView;
 import com.oracle.graalvm.mx.build.MxBuildSettings;
+import com.oracle.graalvm.mx.run.test.MxTestConsoleProperties;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Command line state for MX test execution
+ * Command line state for MX test execution with SM Test Runner integration
  */
 public class MxTestCommandLineState extends CommandLineState {
 
@@ -20,6 +23,21 @@ public class MxTestCommandLineState extends CommandLineState {
                                     MxTestRunConfiguration configuration) {
         super(environment);
         this.configuration = configuration;
+
+        // Create SM Test Runner console for test window integration
+        MxTestConsoleProperties consoleProperties = new MxTestConsoleProperties(
+            configuration,
+            environment.getExecutor()
+        );
+
+        setConsoleBuilder(
+            SMTestRunnerConnectionUtil.createConsoleWithCustomLocator(
+                "MX",
+                consoleProperties,
+                getEnvironment(),
+                consoleProperties.getTestLocator()
+            )
+        );
     }
 
     @NotNull
