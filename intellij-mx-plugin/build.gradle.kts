@@ -12,7 +12,8 @@ repositories {
 }
 
 dependencies {
-    implementation("org.python:jython-standalone:2.7.3")
+    implementation("org.graalvm.polyglot:polyglot:24.1.0")
+    implementation("org.graalvm.polyglot:python:24.1.0")
 }
 
 intellij {

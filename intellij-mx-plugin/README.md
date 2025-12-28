@@ -52,6 +52,7 @@ An IntelliJ IDEA plugin that provides first-class support for projects using the
 - IntelliJ IDEA 2023.3 or later (Community or Ultimate)
 - Java 17 or later
 - MX build tool installed and in PATH (or configure path in settings)
+- GraalPy (included as dependency - no separate installation needed)
 
 ## Usage
 
@@ -114,7 +115,7 @@ The plugin consists of several key components:
 - `MxDistribution`: Represents distribution artifacts
 
 ### Parser (`com.oracle.graalvm.mx.parser`)
-- `MxSuiteParser`: Parses suite.py using Jython
+- `MxSuiteParser`: Parses suite.py using GraalPy (GraalVM's Python implementation)
 
 ### Project (`com.oracle.graalvm.mx.project`)
 - `MxProjectStructureDetector`: Detects MX projects

@@ -1,8 +1,8 @@
 package com.oracle.graalvm.mx.parser;
 
 import com.oracle.graalvm.mx.model.*;
-import org.python.core.*;
-import org.python.util.PythonInterpreter;
+import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.Value;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -10,7 +10,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 /**
- * Parser for suite.py files using Jython
+ * Parser for suite.py files using GraalPy
  */
 public class MxSuiteParser {
 
@@ -30,33 +30,37 @@ public class MxSuiteParser {
 
         MxSuite suite = new MxSuite(suiteName, suiteDir);
 
-        try (PythonInterpreter interp = new PythonInterpreter()) {
+        try (Context context = Context.newBuilder("python")
+                .allowAllAccess(true)
+                .option("python.ForceImportSite", "false")
+                .build()) {
+
             // Execute the suite.py file
             String content = Files.readString(suiteFile);
-            interp.exec(content);
+            context.eval("python", content);
 
             // Get the 'suite' dictionary
-            PyObject suiteObj = interp.get("suite");
-            if (suiteObj == null || !(suiteObj instanceof PyDictionary)) {
+            Value bindings = context.getBindings("python");
+            Value suiteValue = bindings.getMember("suite");
+
+            if (suiteValue == null || !suiteValue.hasHashEntries()) {
                 throw new IOException("Invalid suite.py: missing 'suite' dictionary");
             }
 
-            PyDictionary suiteDict = (PyDictionary) suiteObj;
-
             // Parse basic suite info
-            parseSuiteBasics(suite, suiteDict);
+            parseSuiteBasics(suite, suiteValue);
 
             // Parse projects
-            parseProjects(suite, suiteDict);
+            parseProjects(suite, suiteValue);
 
             // Parse libraries
-            parseLibraries(suite, suiteDict);
+            parseLibraries(suite, suiteValue);
 
             // Parse distributions
-            parseDistributions(suite, suiteDict);
+            parseDistributions(suite, suiteValue);
 
             // Parse imports
-            parseImports(suite, suiteDict);
+            parseImports(suite, suiteValue);
 
             return suite;
         } catch (Exception e) {
@@ -64,33 +68,32 @@ public class MxSuiteParser {
         }
     }
 
-    private static void parseSuiteBasics(MxSuite suite, PyDictionary suiteDict) {
-        PyObject nameObj = suiteDict.get(new PyString("name"));
-        if (nameObj != null) {
-            suite.setName(nameObj.toString());
+    private static void parseSuiteBasics(MxSuite suite, Value suiteDict) {
+        if (suiteDict.hasMember("name")) {
+            suite.setName(suiteDict.getMember("name").asString());
         }
 
-        PyObject mxVersionObj = suiteDict.get(new PyString("mxversion"));
-        if (mxVersionObj != null) {
-            suite.setMxVersion(mxVersionObj.toString());
+        if (suiteDict.hasMember("mxversion")) {
+            suite.setMxVersion(suiteDict.getMember("mxversion").asString());
         }
     }
 
-    private static void parseProjects(MxSuite suite, PyDictionary suiteDict) {
-        PyObject projectsObj = suiteDict.get(new PyString("projects"));
-        if (projectsObj == null || !(projectsObj instanceof PyDictionary)) {
+    private static void parseProjects(MxSuite suite, Value suiteDict) {
+        if (!suiteDict.hasMember("projects")) {
             return;
         }
 
-        PyDictionary projectsDict = (PyDictionary) projectsObj;
+        Value projectsDict = suiteDict.getMember("projects");
+        if (projectsDict == null || !projectsDict.hasHashEntries()) {
+            return;
+        }
+
         List<MxProject> projects = new ArrayList<>();
 
-        for (Object key : projectsDict.keys()) {
-            String projectName = key.toString();
-            PyObject projectDataObj = projectsDict.get(new PyString(projectName));
-
-            if (projectDataObj instanceof PyDictionary) {
-                MxProject project = parseProject(projectName, (PyDictionary) projectDataObj, suite);
+        for (String projectName : projectsDict.getMemberKeys()) {
+            Value projectData = projectsDict.getMember(projectName);
+            if (projectData != null && projectData.hasHashEntries()) {
+                MxProject project = parseProject(projectName, projectData, suite);
                 projects.add(project);
             }
         }
@@ -98,81 +101,85 @@ public class MxSuiteParser {
         suite.setProjects(projects);
     }
 
-    private static MxProject parseProject(String name, PyDictionary projectDict, MxSuite suite) {
+    private static MxProject parseProject(String name, Value projectDict, MxSuite suite) {
         MxProject project = new MxProject(name, suite);
 
         // SubDir
-        PyObject subDirObj = projectDict.get(new PyString("subDir"));
-        if (subDirObj != null) {
-            project.setSubDir(subDirObj.toString());
+        if (projectDict.hasMember("subDir")) {
+            project.setSubDir(projectDict.getMember("subDir").asString());
         }
 
         // Source directories
-        PyObject sourceDirsObj = projectDict.get(new PyString("sourceDirs"));
-        if (sourceDirsObj instanceof PyList) {
-            List<String> sourceDirs = new ArrayList<>();
-            for (Object item : (PyList) sourceDirsObj) {
-                sourceDirs.add(item.toString());
+        if (projectDict.hasMember("sourceDirs")) {
+            Value sourceDirs = projectDict.getMember("sourceDirs");
+            if (sourceDirs.hasArrayElements()) {
+                List<String> sourceDirList = new ArrayList<>();
+                for (long i = 0; i < sourceDirs.getArraySize(); i++) {
+                    sourceDirList.add(sourceDirs.getArrayElement(i).asString());
+                }
+                project.setSourceDirs(sourceDirList);
             }
-            project.setSourceDirs(sourceDirs);
         }
 
         // Dependencies
-        PyObject depsObj = projectDict.get(new PyString("dependencies"));
-        if (depsObj instanceof PyList) {
-            List<String> deps = new ArrayList<>();
-            for (Object item : (PyList) depsObj) {
-                deps.add(item.toString());
+        if (projectDict.hasMember("dependencies")) {
+            Value deps = projectDict.getMember("dependencies");
+            if (deps.hasArrayElements()) {
+                List<String> depList = new ArrayList<>();
+                for (long i = 0; i < deps.getArraySize(); i++) {
+                    depList.add(deps.getArrayElement(i).asString());
+                }
+                project.setDependencies(depList);
             }
-            project.setDependencies(deps);
         }
 
         // Java compliance
-        PyObject javaComplianceObj = projectDict.get(new PyString("javaCompliance"));
-        if (javaComplianceObj != null) {
-            project.setJavaCompliance(javaComplianceObj.toString());
+        if (projectDict.hasMember("javaCompliance")) {
+            Value compliance = projectDict.getMember("javaCompliance");
+            project.setJavaCompliance(compliance.isString() ? compliance.asString() : compliance.toString());
         }
 
         // Test project
-        PyObject testProjectObj = projectDict.get(new PyString("testProject"));
-        if (testProjectObj != null) {
-            project.setTestProject(Boolean.parseBoolean(testProjectObj.toString()));
+        if (projectDict.hasMember("testProject")) {
+            project.setTestProject(projectDict.getMember("testProject").asBoolean());
         }
 
         // Working sets
-        PyObject workingSetsObj = projectDict.get(new PyString("workingSets"));
-        if (workingSetsObj != null) {
-            project.setWorkingSets(workingSetsObj.toString());
+        if (projectDict.hasMember("workingSets")) {
+            project.setWorkingSets(projectDict.getMember("workingSets").asString());
         }
 
         // Annotation processors
-        PyObject annotationProcessorsObj = projectDict.get(new PyString("annotationProcessors"));
-        if (annotationProcessorsObj instanceof PyList) {
-            List<String> aps = new ArrayList<>();
-            for (Object item : (PyList) annotationProcessorsObj) {
-                aps.add(item.toString());
+        if (projectDict.hasMember("annotationProcessors")) {
+            Value aps = projectDict.getMember("annotationProcessors");
+            if (aps.hasArrayElements()) {
+                List<String> apList = new ArrayList<>();
+                for (long i = 0; i < aps.getArraySize(); i++) {
+                    apList.add(aps.getArrayElement(i).asString());
+                }
+                project.setAnnotationProcessors(apList);
             }
-            project.setAnnotationProcessors(aps);
         }
 
         return project;
     }
 
-    private static void parseLibraries(MxSuite suite, PyDictionary suiteDict) {
-        PyObject librariesObj = suiteDict.get(new PyString("libraries"));
-        if (librariesObj == null || !(librariesObj instanceof PyDictionary)) {
+    private static void parseLibraries(MxSuite suite, Value suiteDict) {
+        if (!suiteDict.hasMember("libraries")) {
             return;
         }
 
-        PyDictionary librariesDict = (PyDictionary) librariesObj;
+        Value librariesDict = suiteDict.getMember("libraries");
+        if (librariesDict == null || !librariesDict.hasHashEntries()) {
+            return;
+        }
+
         List<MxLibrary> libraries = new ArrayList<>();
 
-        for (Object key : librariesDict.keys()) {
-            String libName = key.toString();
-            PyObject libDataObj = librariesDict.get(new PyString(libName));
-
-            if (libDataObj instanceof PyDictionary) {
-                MxLibrary library = parseLibrary(libName, (PyDictionary) libDataObj);
+        for (String libName : librariesDict.getMemberKeys()) {
+            Value libData = librariesDict.getMember(libName);
+            if (libData != null && libData.hasHashEntries()) {
+                MxLibrary library = parseLibrary(libName, libData);
                 libraries.add(library);
             }
         }
@@ -180,68 +187,69 @@ public class MxSuiteParser {
         suite.setLibraries(libraries);
     }
 
-    private static MxLibrary parseLibrary(String name, PyDictionary libDict) {
+    private static MxLibrary parseLibrary(String name, Value libDict) {
         MxLibrary library = new MxLibrary(name);
 
         // URLs
-        PyObject urlsObj = libDict.get(new PyString("urls"));
-        if (urlsObj instanceof PyList) {
-            List<String> urls = new ArrayList<>();
-            for (Object item : (PyList) urlsObj) {
-                urls.add(item.toString());
+        if (libDict.hasMember("urls")) {
+            Value urls = libDict.getMember("urls");
+            if (urls.hasArrayElements()) {
+                List<String> urlList = new ArrayList<>();
+                for (long i = 0; i < urls.getArraySize(); i++) {
+                    urlList.add(urls.getArrayElement(i).asString());
+                }
+                library.setUrls(urlList);
             }
-            library.setUrls(urls);
         }
 
         // Digest
-        PyObject digestObj = libDict.get(new PyString("digest"));
-        if (digestObj != null) {
-            library.setDigest(digestObj.toString());
+        if (libDict.hasMember("digest")) {
+            library.setDigest(libDict.getMember("digest").asString());
         }
 
         // Maven coordinates
-        PyObject mavenObj = libDict.get(new PyString("maven"));
-        if (mavenObj instanceof PyDictionary) {
-            PyDictionary mavenDict = (PyDictionary) mavenObj;
-            String groupId = getString(mavenDict, "groupId");
-            String artifactId = getString(mavenDict, "artifactId");
-            String version = getString(mavenDict, "version");
+        if (libDict.hasMember("maven")) {
+            Value maven = libDict.getMember("maven");
+            if (maven.hasHashEntries()) {
+                String groupId = getStringMember(maven, "groupId");
+                String artifactId = getStringMember(maven, "artifactId");
+                String version = getStringMember(maven, "version");
 
-            if (groupId != null && artifactId != null && version != null) {
-                library.setMaven(new MxLibrary.MavenCoordinate(groupId, artifactId, version));
+                if (groupId != null && artifactId != null && version != null) {
+                    library.setMaven(new MxLibrary.MavenCoordinate(groupId, artifactId, version));
+                }
             }
         }
 
         // License
-        PyObject licenseObj = libDict.get(new PyString("license"));
-        if (licenseObj != null) {
-            library.setLicense(licenseObj.toString());
+        if (libDict.hasMember("license")) {
+            library.setLicense(libDict.getMember("license").asString());
         }
 
         // Optional
-        PyObject optionalObj = libDict.get(new PyString("optional"));
-        if (optionalObj != null) {
-            library.setOptional(Boolean.parseBoolean(optionalObj.toString()));
+        if (libDict.hasMember("optional")) {
+            library.setOptional(libDict.getMember("optional").asBoolean());
         }
 
         return library;
     }
 
-    private static void parseDistributions(MxSuite suite, PyDictionary suiteDict) {
-        PyObject distsObj = suiteDict.get(new PyString("distributions"));
-        if (distsObj == null || !(distsObj instanceof PyDictionary)) {
+    private static void parseDistributions(MxSuite suite, Value suiteDict) {
+        if (!suiteDict.hasMember("distributions")) {
             return;
         }
 
-        PyDictionary distsDict = (PyDictionary) distsObj;
+        Value distsDict = suiteDict.getMember("distributions");
+        if (distsDict == null || !distsDict.hasHashEntries()) {
+            return;
+        }
+
         List<MxDistribution> distributions = new ArrayList<>();
 
-        for (Object key : distsDict.keys()) {
-            String distName = key.toString();
-            PyObject distDataObj = distsDict.get(new PyString(distName));
-
-            if (distDataObj instanceof PyDictionary) {
-                MxDistribution dist = parseDistribution(distName, (PyDictionary) distDataObj, suite);
+        for (String distName : distsDict.getMemberKeys()) {
+            Value distData = distsDict.getMember(distName);
+            if (distData != null && distData.hasHashEntries()) {
+                MxDistribution dist = parseDistribution(distName, distData, suite);
                 distributions.add(dist);
             }
         }
@@ -249,61 +257,70 @@ public class MxSuiteParser {
         suite.setDistributions(distributions);
     }
 
-    private static MxDistribution parseDistribution(String name, PyDictionary distDict, MxSuite suite) {
+    private static MxDistribution parseDistribution(String name, Value distDict, MxSuite suite) {
         MxDistribution dist = new MxDistribution(name, suite);
 
         // Dependencies
-        PyObject depsObj = distDict.get(new PyString("dependencies"));
-        if (depsObj instanceof PyList) {
-            List<String> deps = new ArrayList<>();
-            for (Object item : (PyList) depsObj) {
-                deps.add(item.toString());
+        if (distDict.hasMember("dependencies")) {
+            Value deps = distDict.getMember("dependencies");
+            if (deps.hasArrayElements()) {
+                List<String> depList = new ArrayList<>();
+                for (long i = 0; i < deps.getArraySize(); i++) {
+                    depList.add(deps.getArrayElement(i).asString());
+                }
+                dist.setDependencies(depList);
             }
-            dist.setDependencies(deps);
         }
 
         // Excludes
-        PyObject excludesObj = distDict.get(new PyString("excludes"));
-        if (excludesObj instanceof PyList) {
-            List<String> excludes = new ArrayList<>();
-            for (Object item : (PyList) excludesObj) {
-                excludes.add(item.toString());
+        if (distDict.hasMember("excludes")) {
+            Value excludes = distDict.getMember("excludes");
+            if (excludes.hasArrayElements()) {
+                List<String> excludeList = new ArrayList<>();
+                for (long i = 0; i < excludes.getArraySize(); i++) {
+                    excludeList.add(excludes.getArrayElement(i).asString());
+                }
+                dist.setExcludes(excludeList);
             }
-            dist.setExcludes(excludes);
         }
 
         // Platform dependent
-        PyObject platformDepObj = distDict.get(new PyString("platformDependent"));
-        if (platformDepObj != null) {
-            dist.setPlatformDependent(Boolean.parseBoolean(platformDepObj.toString()));
+        if (distDict.hasMember("platformDependent")) {
+            dist.setPlatformDependent(distDict.getMember("platformDependent").asBoolean());
         }
 
         // Test distribution
-        PyObject testDistObj = distDict.get(new PyString("testDistribution"));
-        if (testDistObj != null) {
-            dist.setTestDistribution(Boolean.parseBoolean(testDistObj.toString()));
+        if (distDict.hasMember("testDistribution")) {
+            dist.setTestDistribution(distDict.getMember("testDistribution").asBoolean());
         }
 
         return dist;
     }
 
-    private static void parseImports(MxSuite suite, PyDictionary suiteDict) {
-        PyObject importsObj = suiteDict.get(new PyString("imports"));
-        if (importsObj == null || !(importsObj instanceof PyDictionary)) {
+    private static void parseImports(MxSuite suite, Value suiteDict) {
+        if (!suiteDict.hasMember("imports")) {
             return;
         }
 
-        PyDictionary importsDict = (PyDictionary) importsObj;
-        PyObject suitesObj = importsDict.get(new PyString("suites"));
+        Value importsDict = suiteDict.getMember("imports");
+        if (importsDict == null || !importsDict.hasHashEntries()) {
+            return;
+        }
 
-        if (suitesObj == null || !(suitesObj instanceof PyList)) {
+        if (!importsDict.hasMember("suites")) {
+            return;
+        }
+
+        Value suitesArray = importsDict.getMember("suites");
+        if (suitesArray == null || !suitesArray.hasArrayElements()) {
             return;
         }
 
         List<MxSuiteImport> imports = new ArrayList<>();
-        for (Object item : (PyList) suitesObj) {
-            if (item instanceof PyDictionary) {
-                MxSuiteImport suiteImport = parseSuiteImport((PyDictionary) item);
+        for (long i = 0; i < suitesArray.getArraySize(); i++) {
+            Value importData = suitesArray.getArrayElement(i);
+            if (importData.hasHashEntries()) {
+                MxSuiteImport suiteImport = parseSuiteImport(importData);
                 imports.add(suiteImport);
             }
         }
@@ -311,30 +328,32 @@ public class MxSuiteParser {
         suite.setImports(imports);
     }
 
-    private static MxSuiteImport parseSuiteImport(PyDictionary importDict) {
-        String name = getString(importDict, "name");
+    private static MxSuiteImport parseSuiteImport(Value importDict) {
+        String name = getStringMember(importDict, "name");
         MxSuiteImport suiteImport = new MxSuiteImport(name);
 
-        String version = getString(importDict, "version");
+        String version = getStringMember(importDict, "version");
         if (version != null) {
             suiteImport.setVersion(version);
         }
 
-        String url = getString(importDict, "url");
+        String url = getStringMember(importDict, "url");
         if (url != null) {
             suiteImport.setUrl(url);
         }
 
-        PyObject dynamicObj = importDict.get(new PyString("dynamic"));
-        if (dynamicObj != null) {
-            suiteImport.setDynamic(Boolean.parseBoolean(dynamicObj.toString()));
+        if (importDict.hasMember("dynamic")) {
+            suiteImport.setDynamic(importDict.getMember("dynamic").asBoolean());
         }
 
         return suiteImport;
     }
 
-    private static String getString(PyDictionary dict, String key) {
-        PyObject obj = dict.get(new PyString(key));
-        return obj != null ? obj.toString() : null;
+    private static String getStringMember(Value dict, String key) {
+        if (dict.hasMember(key)) {
+            Value value = dict.getMember(key);
+            return value.isString() ? value.asString() : value.toString();
+        }
+        return null;
     }
 }
