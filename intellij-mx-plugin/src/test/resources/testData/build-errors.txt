@@ -1,0 +1,7 @@
+/home/user/project/src/main/java/com/example/Test.java:42:15: error: cannot find symbol
+  symbol:   variable foo
+  location: class Test
+/home/user/project/src/main/java/com/example/Test.java:43: warning: unused variable bar
+/home/user/project/src/test/java/com/example/TestCase.java:10:5: error: incompatible types: String cannot be converted to int
+[ERROR] /home/user/project/src/main/java/com/example/Style.java:25: Line is longer than 120 characters (found 125).
+[ERROR] /home/user/project/src/main/java/com/example/Style.java:30:10: Whitespace before ';'.

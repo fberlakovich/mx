@@ -14,6 +14,11 @@ repositories {
 dependencies {
     implementation("org.graalvm.polyglot:polyglot:24.1.0")
     implementation("org.graalvm.polyglot:python:24.1.0")
+
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.1")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.1")
+    testImplementation("org.mockito:mockito-core:5.8.0")
+    testImplementation("org.mockito:mockito-junit-jupiter:5.8.0")
 }
 
 intellij {
@@ -30,6 +35,10 @@ tasks {
 
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions.jvmTarget = "17"
+    }
+
+    test {
+        useJUnitPlatform()
     }
 
     patchPluginXml {
