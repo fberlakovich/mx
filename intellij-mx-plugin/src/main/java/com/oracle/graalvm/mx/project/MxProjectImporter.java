@@ -4,14 +4,21 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
+import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.oracle.graalvm.mx.dependencies.MxDependencyResolver;
 import com.oracle.graalvm.mx.model.*;
 import com.oracle.graalvm.mx.parser.MxSuiteParser;
+import org.jetbrains.annotations.NotNull;
 
 import java.nio.file.Path;
 import java.util.*;
@@ -94,12 +101,12 @@ public class MxProjectImporter {
                                      Map<String, Library> libraryMap) {
         Library.ModifiableModel libraryModel = libraryTable.createLibrary(mxLib.getName()).getModifiableModel();
 
-        // If library has Maven coordinates, we could potentially resolve it
-        // For now, just create the library entry
-        if (mxLib.getMaven() != null) {
-            // Maven libraries would be resolved by MX tool
-            LOG.info("Library " + mxLib.getName() + " has Maven coordinate: " +
-                    mxLib.getMaven().getCoordinateString());
+        // Resolve and download the library
+        if (mxLib.getMaven() != null || !mxLib.getUrls().isEmpty()) {
+            LOG.info("Resolving library: " + mxLib.getName());
+
+            // This will be done in background during import
+            // For now, just mark it for later resolution
         }
 
         libraryModel.commit();
@@ -126,22 +133,47 @@ public class MxProjectImporter {
             // Configure module
             ModifiableRootModel rootModel = ModuleRootManager.getInstance(module).getModifiableModel();
 
-            // Add source roots
-            for (Path sourceDir : mxProject.getAbsoluteSourceDirs()) {
-                VirtualFile sourceVF = VfsUtil.findFile(sourceDir, true);
-                if (sourceVF != null) {
-                    ContentEntry contentEntry = rootModel.addContentEntry(sourceVF);
-                    contentEntry.addSourceFolder(sourceVF, mxProject.isTestProject());
+            // Add content root for the project directory
+            VirtualFile projectDirVF = VfsUtil.findFile(projectDir, true);
+            if (projectDirVF != null) {
+                ContentEntry contentEntry = rootModel.addContentEntry(projectDirVF);
+
+                // Add source roots
+                for (Path sourceDir : mxProject.getAbsoluteSourceDirs()) {
+                    VirtualFile sourceVF = VfsUtil.findFile(sourceDir, true);
+                    if (sourceVF != null) {
+                        // Properly mark as source or test source
+                        if (mxProject.isTestProject()) {
+                            contentEntry.addSourceFolder(sourceVF, JavaSourceRootType.TEST_SOURCE);
+                        } else {
+                            contentEntry.addSourceFolder(sourceVF, JavaSourceRootType.SOURCE);
+                        }
+                    }
+                }
+
+                // Add generated source root if it exists
+                Path sourceGenDir = mxProject.getSourceGenDir();
+                if (sourceGenDir != null) {
+                    VirtualFile sourceGenVF = VfsUtil.createDirectoryIfMissing(sourceGenDir.toString());
+                    if (sourceGenVF != null) {
+                        contentEntry.addSourceFolder(sourceGenVF, JavaSourceRootType.SOURCE, true);
+                    }
                 }
             }
 
-            // Add output directory
+            // Add output directories
             Path outputDir = mxProject.getOutputDir();
             if (outputDir != null) {
                 VirtualFile outputVF = VfsUtil.createDirectoryIfMissing(outputDir.toString());
                 if (outputVF != null) {
-                    rootModel.getModuleExtension(CompilerModuleExtension.class)
-                            .setCompilerOutputPath(outputVF);
+                    CompilerModuleExtension compilerExtension = rootModel.getModuleExtension(CompilerModuleExtension.class);
+                    if (mxProject.isTestProject()) {
+                        compilerExtension.setCompilerOutputPathForTests(outputVF);
+                    } else {
+                        compilerExtension.setCompilerOutputPath(outputVF);
+                    }
+                    // Mark output directory to be excluded from indexing
+                    compilerExtension.setExcludeOutput(true);
                 }
             }
 

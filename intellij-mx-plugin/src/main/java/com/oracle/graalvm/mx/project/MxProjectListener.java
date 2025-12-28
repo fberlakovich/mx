@@ -31,7 +31,8 @@ public class MxProjectListener implements ProjectManagerListener {
 
             if (isMxProject) {
                 LOG.info("MX project detected: " + project.getName());
-                // Project structure will be set up by the importer
+                // Register file watcher for suite.py changes
+                MxSuiteFileWatcher.register(project);
             }
         } catch (Exception e) {
             LOG.error("Error checking for MX project", e);

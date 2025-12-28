@@ -41,6 +41,13 @@ public class MxTestCommandLineState extends CommandLineState {
         commandLine.setExePath(mxPath);
         commandLine.setWorkDirectory(workingDir);
 
+        // Add debug flag if debugging (mx -d uses port 8000 by default)
+        if (getEnvironment().getExecutor().getId().equals("Debug")) {
+            int debugPort = MxDebugRunner.getDebugPort(configuration);
+            commandLine.addParameter("--dbg");
+            commandLine.addParameter(String.valueOf(debugPort));
+        }
+
         // Add unittest command
         commandLine.addParameter("unittest");
 
