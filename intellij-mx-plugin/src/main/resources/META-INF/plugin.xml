@@ -19,6 +19,7 @@
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
     <depends>com.intellij.modules.lang</depends>
+    <depends>com.intellij.modules.python</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <!-- Project detection -->
@@ -33,6 +34,28 @@
                   fieldName="INSTANCE"
                   language="Python"
                   extensions=""/>
+
+        <!-- suite.py editor support -->
+        <completion.contributor language="Python"
+                              implementationClass="com.oracle.graalvm.mx.lang.MxSuiteCompletionContributor"/>
+        <psi.referenceContributor language="Python"
+                                 implementation="com.oracle.graalvm.mx.lang.MxSuiteReferenceContributor"/>
+
+        <!-- suite.py inspections -->
+        <localInspection language="Python"
+                        shortName="MxMissingRequiredField"
+                        displayName="Missing required field in MX suite"
+                        groupName="MX Suite"
+                        enabledByDefault="true"
+                        level="ERROR"
+                        implementationClass="com.oracle.graalvm.mx.lang.inspections.MxMissingRequiredFieldInspection"/>
+        <localInspection language="Python"
+                        shortName="MxInvalidJavaCompliance"
+                        displayName="Invalid Java compliance version"
+                        groupName="MX Suite"
+                        enabledByDefault="true"
+                        level="ERROR"
+                        implementationClass="com.oracle.graalvm.mx.lang.inspections.MxInvalidJavaComplianceInspection"/>
 
         <!-- Project structure -->
         <projectStructureDetector implementation="com.oracle.graalvm.mx.project.MxProjectStructureDetector"/>

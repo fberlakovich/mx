@@ -24,7 +24,7 @@ dependencies {
 intellij {
     version.set("2023.3.2")
     type.set("IC")
-    plugins.set(listOf("java"))
+    plugins.set(listOf("java", "PythonCore:233.11799.259"))
 }
 
 tasks {

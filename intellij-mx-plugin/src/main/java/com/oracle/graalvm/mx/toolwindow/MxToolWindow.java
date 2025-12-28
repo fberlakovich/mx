@@ -62,6 +62,20 @@ public class MxToolWindow extends SimpleToolWindowPanel {
                     handleDoubleClick();
                 }
             }
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showPopupMenu(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showPopupMenu(e);
+                }
+            }
         });
 
         // Create toolbar with actions
@@ -132,6 +146,13 @@ public class MxToolWindow extends SimpleToolWindowPanel {
         });
 
         return ActionManager.getInstance().createActionToolbar("MxToolWindow", group, true);
+    }
+
+    /**
+     * Refresh the tree view (public method for external refresh triggers)
+     */
+    public void refresh() {
+        loadSuites();
     }
 
     private void loadSuites() {
@@ -252,9 +273,144 @@ public class MxToolWindow extends SimpleToolWindowPanel {
 
         if (userObject instanceof ProjectData) {
             ProjectData projectData = (ProjectData) userObject;
-            // Could navigate to project files here
-            LOG.info("Double-clicked project: " + projectData.project.getName());
+            navigateToProject(projectData.project);
+        } else if (userObject instanceof SuiteData) {
+            SuiteData suiteData = (SuiteData) userObject;
+            navigateToSuite(suiteData.path);
         }
+    }
+
+    private void showPopupMenu(java.awt.event.MouseEvent e) {
+        TreePath path = tree.getPathForLocation(e.getX(), e.getY());
+        if (path == null) {
+            return;
+        }
+
+        tree.setSelectionPath(path);
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+        Object userObject = node.getUserObject();
+
+        JPopupMenu popup = new JPopupMenu();
+
+        if (userObject instanceof ProjectData) {
+            ProjectData projectData = (ProjectData) userObject;
+            addProjectActions(popup, projectData.project);
+        } else if (userObject instanceof SuiteData) {
+            SuiteData suiteData = (SuiteData) userObject;
+            addSuiteActions(popup, suiteData);
+        }
+
+        if (popup.getComponentCount() > 0) {
+            popup.show(tree, e.getX(), e.getY());
+        }
+    }
+
+    private void addProjectActions(JPopupMenu popup, MxProject mxProject) {
+        // Build project
+        JMenuItem buildItem = new JMenuItem("Build Project", AllIcons.Actions.Compile);
+        buildItem.addActionListener(e -> {
+            DataContext dataContext = DataManager.getInstance().getDataContext(tree);
+            AnActionEvent event = AnActionEvent.createFromAnAction(
+                new MxBuildAction(), null, ActionPlaces.UNKNOWN, dataContext);
+            new MxBuildAction().actionPerformed(event);
+        });
+        popup.add(buildItem);
+
+        // Run tests
+        if (mxProject.isTestProject() || hasTests(mxProject)) {
+            JMenuItem testItem = new JMenuItem("Run Tests", AllIcons.RunConfigurations.TestState.Run);
+            testItem.addActionListener(e -> {
+                DataContext dataContext = DataManager.getInstance().getDataContext(tree);
+                AnActionEvent event = AnActionEvent.createFromAnAction(
+                    new MxTestAction(), null, ActionPlaces.UNKNOWN, dataContext);
+                new MxTestAction().actionPerformed(event);
+            });
+            popup.add(testItem);
+        }
+
+        popup.addSeparator();
+
+        // Navigate to source
+        JMenuItem navigateItem = new JMenuItem("Open in Editor", AllIcons.Actions.EditSource);
+        navigateItem.addActionListener(e -> navigateToProject(mxProject));
+        popup.add(navigateItem);
+
+        // Show in files
+        JMenuItem showFilesItem = new JMenuItem("Show in Files", AllIcons.Actions.Show);
+        showFilesItem.addActionListener(e -> showInFiles(mxProject));
+        popup.add(showFilesItem);
+    }
+
+    private void addSuiteActions(JPopupMenu popup, SuiteData suiteData) {
+        // Open suite.py
+        JMenuItem openSuiteItem = new JMenuItem("Open suite.py", AllIcons.Actions.EditSource);
+        openSuiteItem.addActionListener(e -> navigateToSuite(suiteData.path));
+        popup.add(openSuiteItem);
+
+        popup.addSeparator();
+
+        // Sync project
+        JMenuItem syncItem = new JMenuItem("Sync Project Structure", AllIcons.Actions.Refresh);
+        syncItem.addActionListener(e -> {
+            DataContext dataContext = DataManager.getInstance().getDataContext(tree);
+            AnActionEvent event = AnActionEvent.createFromAnAction(
+                new MxSyncAction(), null, ActionPlaces.UNKNOWN, dataContext);
+            new MxSyncAction().actionPerformed(event);
+        });
+        popup.add(syncItem);
+
+        // Refresh tree
+        JMenuItem refreshItem = new JMenuItem("Refresh", AllIcons.Actions.Refresh);
+        refreshItem.addActionListener(e -> loadSuites());
+        popup.add(refreshItem);
+    }
+
+    private void navigateToProject(MxProject mxProject) {
+        // Navigate to the first source directory
+        if (mxProject.getSourceDirs() != null && !mxProject.getSourceDirs().isEmpty()) {
+            Path projectPath = mxProject.getSuite().getPath().resolve(
+                mxProject.getSubDir() != null ? mxProject.getSubDir() : ""
+            );
+            Path sourcePath = projectPath.resolve(mxProject.getSourceDirs().get(0));
+
+            VirtualFile vf = VirtualFileManager.getInstance().findFileByNioPath(sourcePath);
+            if (vf != null && vf.exists()) {
+                vf.refresh(false, false);
+                com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
+                    .openFile(vf, true);
+            }
+        }
+    }
+
+    private void navigateToSuite(String suitePath) {
+        // Open suite.py file
+        Path suiteFile = Path.of(suitePath).resolve("mx." + Path.of(suitePath).getFileName()).resolve("suite.py");
+        VirtualFile vf = VirtualFileManager.getInstance().findFileByNioPath(suiteFile);
+        if (vf != null && vf.exists()) {
+            vf.refresh(false, false);
+            com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
+                .openFile(vf, true);
+        }
+    }
+
+    private void showInFiles(MxProject mxProject) {
+        Path projectPath = mxProject.getSuite().getPath().resolve(
+            mxProject.getSubDir() != null ? mxProject.getSubDir() : ""
+        );
+        VirtualFile vf = VirtualFileManager.getInstance().findFileByNioPath(projectPath);
+        if (vf != null && vf.exists()) {
+            com.intellij.ide.actions.RevealFileAction.openDirectory(vf);
+        }
+    }
+
+    private boolean hasTests(MxProject mxProject) {
+        // Simple heuristic: check if project has test-related dependencies
+        if (mxProject.getDependencies() == null) {
+            return false;
+        }
+        return mxProject.getDependencies().stream()
+            .anyMatch(dep -> dep.toLowerCase().contains("test") ||
+                           dep.toLowerCase().contains("junit"));
     }
 
     @Nullable
